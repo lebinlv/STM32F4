@@ -1,0 +1,26 @@
+{
+    "configurations": [
+        {
+            "name": "STM32",
+            "includePath": [
+                "C:/Keil_v5/ARM/ARMCC/include",
+                "${workspaceFolder}/CMSIS",
+                "${workspaceFolder}/CMSIS/Include",
+                "${workspaceFolder}/Library/inc",
+                "${workspaceFolder}/System",
+                "${workspaceFolder}/HardWare",
+                "${workspaceFolder}/Fonts",
+                "${workspaceFolder}/USER"
+            ],
+            "defines": [
+                "USE_STDPERIPH_DRIVER",
+                "STM32F40_41xxx"
+            ],
+            "compilerPath": "C:\\mingw-w64\\bin\\++.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "msvc-x64"
+        }
+    ],
+    "version": 4
+}
