@@ -1,48 +1,37 @@
+#include <stdio.h>
+#include <stdarg.h>
 #include "OLED.h"
-#include <string.h>
 
-I2C_OLED::I2C_OLED(uint8_t address)
+OLED::OLED()
 {
-    device_address = address;
-
-    //buffer.GRAM = (uint8_t*)malloc(sizeof(uint8_t)*Width*Height/8);
-    //buffer.GRAM = new uint8_t [1024];  // 1024 = OLED_WIDTH*OLED_HEIGHT/8
-    buffer.GRAM = &temp[0];
+    buffer.GRAM = &temp[0];  // 1024 = OLED_WIDTH*OLED_HEIGHT/8
     buffer.column_start = 0;
-    buffer.column_end = 127;
-    buffer.page_start = 0;
-    buffer.page_end = 7;
-    
-    fontData = ArialMT_Plain_10;
+    buffer.column_end = OLED_WIDTH - 1;
+    buffer.row_start = 0;
+    buffer.row_end = OLED_HEIGHT - 1;
 
-//    uint16_t i=1024;
-//    for (uint8_t *t = buffer.GRAM; i > 0; i--, t++)
-//        *t = 0x00;
+    printfStruct.x_start = 0;
+    printfStruct.x_end = OLED_WIDTH;
+    printfStruct.y_start = 0;
+    printfStruct.y_end = OLED_HEIGHT;
+    printfStruct.x_cursor = 0;
+    printfStruct.y_cursor = 0;
+    
+    GRAM_bk = buffer.GRAM;
+    fontData = DejaVu_Sans_10;
+    textHeight = *(fontData + 1);
+    firstChar = *(fontData + 2);
+    charNum = *(fontData + 3);
 }
-I2C_OLED::~I2C_OLED(){}
 
-void I2C_OLED::Init( GPIO_TypeDef *SCL_pinGroup, uint16_t SCL_pinNum,
-                     GPIO_TypeDef *SDA_pinGroup, uint16_t SDA_pinNum )
+OLED::~OLED()
 {
-    SCL_pin.Group = SCL_pinGroup;
-    SCL_pin.Num = SCL_pinNum;
-    SDA_pin.Group = SDA_pinGroup;
-    SDA_pin.Num = SDA_pinNum;
-    /******  GPIO Init    ******/
-    GPIO_InitTypeDef Temp_GPIO_Structure;
-    Temp_GPIO_Structure.GPIO_Mode = GPIO_Mode_OUT;
-    Temp_GPIO_Structure.GPIO_OType = GPIO_OType_PP;
-    Temp_GPIO_Structure.GPIO_Speed = GPIO_Speed_100MHz;
-    Temp_GPIO_Structure.GPIO_PuPd = GPIO_PuPd_UP;
-    // Init SCL Pin:
-    Temp_GPIO_Structure.GPIO_Pin = SCL_pin.Num;
-    GPIO_Init(SCL_pin.Group, &Temp_GPIO_Structure);
-    GPIO_SetBits(SCL_pin.Group, SCL_pin.Num);
-    // Init SDA Pin:
-    Temp_GPIO_Structure.GPIO_Pin = SDA_pin.Num;
-    GPIO_Init(SDA_pin.Group, &Temp_GPIO_Structure);
-    GPIO_SetBits(SDA_pin.Group, SDA_pin.Num);
-    
+    //buffer.GRAM = GRAM_bk;
+    //delete [] buffer.GRAM;
+}
+
+void OLED::screenInit()
+{
     /******  Screen Init ******/
     sendCommand(OLED_DISPLAY_OFF);          // Turn off the screen, but still consume energy
     sendCommand(OLED_SET_DCLK_CLK);         // Set CLK frequence and the divide ratio to generate DCLK from CLK
@@ -68,7 +57,7 @@ void I2C_OLED::Init( GPIO_TypeDef *SCL_pinGroup, uint16_t SCL_pinNum,
     sendCommand(OLED_SET_COMPINS);          // Set COM Pins Hardware Configuration
     sendCommand(0x12);
     sendCommand(OLED_SET_CONTRAST);         // Set Contrast
-    sendCommand(0xCF);
+    sendCommand(0x0F);
     sendCommand(OLED_SET_PRE_CHARGE);       // Set Pre-charge Period
     sendCommand(0xF1);
     sendCommand(OLED_SET_VCOMH_DESELECT);   // Set Vcomh regular output
@@ -77,181 +66,85 @@ void I2C_OLED::Init( GPIO_TypeDef *SCL_pinGroup, uint16_t SCL_pinNum,
                                             // 0xA5: Entire display ON, Output ignores RAM content
     sendCommand(OLED_NORMAL_DISPLAY);       // 0xA6: normal display(RESET); 0xA7 inverse display
     sendCommand(OLED_DISPLAY_ON);           // Turn on the screen
-    
-    clear();
-
 }
-void I2C_OLED::Refresh()
-{
-    if ((buffer.column_start > buffer.column_end) || (buffer.page_start > buffer.page_end))
-        return;
-    setAddr(OLED_COLUMN_ADDR, buffer.column_start, buffer.column_end);
-    setAddr(OLED_PAGE_ADDR, buffer.page_start, buffer.page_end);
 
-    uint8_t x = buffer.column_start, y = buffer.page_start;
-
-    I2C_Start();
-    WriteByte(0x40); //连续性写入数据
-    for (y=buffer.page_start; y <= buffer.page_end; y++)
-        for (x=buffer.column_start; x <= buffer.column_end; x++)
-            WriteByte(buffer.GRAM[x + y * OLED_WIDTH]);    
-    I2C_Stop();
-    
-    buffer.column_start = 127;
-    buffer.column_end = 0;
-    buffer.page_start = 7;
-    buffer.page_end = 0;
-}
-void I2C_OLED::Refresh(uint8_t x_start, uint8_t x_end, uint8_t y_start, uint8_t y_end)
-{
-    uint8_t page_start = y_start/8, page_end = y_end/8;
-    setAddr(OLED_COLUMN_ADDR, x_start, x_end);
-    setAddr(OLED_PAGE_ADDR, page_start, page_end);
-
-    uint8_t x = x_start, y = page_start;
-
-    I2C_Start();
-    WriteByte(0x40); //连续性写入数据
-    for (y = page_start; y <= page_end; y++)
-        for (x = x_start; x <= x_end; x++)
-            WriteByte(buffer.GRAM[x + y * OLED_WIDTH]);
-    I2C_Stop();
-    
-    buffer.column_start = 127;
-    buffer.column_end = 0;
-    buffer.page_start = 7;
-    buffer.page_end = 0;
-}
-void I2C_OLED::clear(bool update)
+void OLED::clear()
 {
     uint16_t i = 1024;
     for (uint8_t *t = buffer.GRAM; i > 0; i--, t++)
         *t = 0x00;
     buffer.column_start = 0;
-    buffer.column_end = 127;
-    buffer.page_start = 0;
-    buffer.page_end = 7;
-    if(update) Refresh();
+    buffer.column_end = OLED_WIDTH - 1;
+    buffer.row_start = 0;
+    buffer.row_end = OLED_HEIGHT - 1;
+    Refresh();
 }
 
-
-
-/******  Basic Hardware Communication Function      ******/
-void I2C_OLED::sendCommand(uint8_t command)
+void OLED::clear(uint8_t x_start, uint8_t x_end, uint8_t y_start, uint8_t y_end)
 {
-    I2C_Start();
-    WriteByte(0x80); //单次性写入命令
-    WriteByte(command);
-    I2C_Stop();
+    if(x_start>=x_end || y_start>=y_end) return;
+    drawFilledRect(x_start, y_start, x_end-x_start, y_end-y_start, CLEAR);
 }
-void I2C_OLED::sendData(uint8_t data)
-{
-    I2C_Start();
-    WriteByte(0xC0); //单次性写入数据
-    WriteByte(data);
-    I2C_Stop();
-}
-void I2C_OLED::WriteByte(uint8_t data)
-{
-    uint8_t j = 0;
-    for (uint8_t i = 0x80; i > 0; i >>= 1)
-    {
-        if (data & i)
-            GPIO_SetBits(SDA_pin.Group, SDA_pin.Num);
-        else
-            GPIO_ResetBits(SDA_pin.Group, SDA_pin.Num);
-        for (j = 0; j < DELAY_1_3_US; j++); //delay time > 1.25us
 
-        GPIO_SetBits(SCL_pin.Group, SCL_pin.Num);
-        for (j = 0; j < DELAY_1_3_US; j++); //delay time > 1.25us
 
-        GPIO_ResetBits(SCL_pin.Group, SCL_pin.Num);
-    }
-    // wait ACK
-    for (j = 0; j < DELAY_1_3_US; j++); //delay time > 1.25us
-    GPIO_SetBits(SCL_pin.Group, SCL_pin.Num);
-    for (j = 0; j < DELAY_1_3_US; j++); //delay time > 1.25us
-    GPIO_ResetBits(SCL_pin.Group, SCL_pin.Num);
-}
-void I2C_OLED::I2C_Start()
-{
-    uint8_t i = 0;
-    GPIO_ResetBits(SDA_pin.Group, SDA_pin.Num);
-    for (i=0; i < DELAY_600_NS; i++); // t_HSTART > 600ns
-    GPIO_ResetBits(SCL_pin.Group, SCL_pin.Num);
-    for (i=0; i < DELAY_600_NS; i++); // t_HSTART > 600ns
-    WriteByte(device_address);
-}
-void I2C_OLED::I2C_Stop()
-{    
-    uint8_t i = 0;
-    for (i=0; i < DELAY_600_NS; i++);    // t_SSTOP > 600ns
-    GPIO_SetBits(SCL_pin.Group, SCL_pin.Num);
-    GPIO_ResetBits(SDA_pin.Group, SDA_pin.Num);
-    for (i=0; i < DELAY_600_NS; i++);    // t_SSTOP > 600ns    
-    GPIO_SetBits(SDA_pin.Group, SDA_pin.Num);
-    for (i = 0; i < DELAY_1_3_US; i++);  // t_IDLE > 1.3us(两次通信之间的时间间隔)
-}
-void I2C_OLED::setBuffer(uint8_t *pBuffer) { buffer.GRAM = pBuffer; }
-void I2C_OLED::resetBuffer() { buffer.GRAM = &temp[0]; }
+void OLED::setBuffer(uint8_t *pBuffer) { buffer.GRAM = pBuffer; }
+void OLED::resetBuffer() { buffer.GRAM = GRAM_bk; }
 /*********************************************************/
 
 
 
 /******      Screen Operation Function      ******/
-void I2C_OLED::turnOnScreen() { sendCommand(OLED_DISPLAY_ON); }
-void I2C_OLED::turnOffScreen() { sendCommand(OLED_DISPLAY_OFF); }
-void I2C_OLED::invert_mode() { sendCommand(OLED_INVERT_DISPLAY); }
-void I2C_OLED::normal_mode() { sendCommand(OLED_NORMAL_DISPLAY); }
-void I2C_OLED::setContrast(uint8_t contrast)
+void OLED::turnOnScreen() { sendCommand(OLED_DISPLAY_ON); }
+void OLED::turnOffScreen() { sendCommand(OLED_DISPLAY_OFF); }
+void OLED::invert_mode() { sendCommand(OLED_INVERT_DISPLAY); }
+void OLED::normal_mode() { sendCommand(OLED_NORMAL_DISPLAY); }
+void OLED::setContrast(uint8_t contrast)
 {
     sendCommand(OLED_SET_CONTRAST);
     sendCommand(contrast);
 }
-void I2C_OLED::setScreen_UpsideDown()
+void OLED::setScreen_UpsideDown()
 {
     sendCommand(OLED_SEG_REMAP_A0);
     sendCommand(OLED_COM_SCAN_C0);
-    Refresh(0, 127, 0, 63);
+    Refresh();
 }
-void I2C_OLED::resetScreen_Orientation()
+void OLED::resetScreen_Orientation()
 {
     sendCommand(OLED_SEG_REMAP_A1);
     sendCommand(OLED_COM_SCAN_C8);
-    Refresh(0, 127, 0, 63);
+    Refresh();
 }
 /************************************************/
 
 
 
 /******      Basic Drawing Function      ******/
-void I2C_OLED::setColoredPixel(uint8_t x, uint8_t y)
+void OLED::setColoredPixel(uint8_t x, uint8_t y)
 {
     if (x < OLED_WIDTH &&  y < OLED_HEIGHT)
         buffer.GRAM[x + (y >> 3) * OLED_WIDTH] |= (1 << (y & 0x07));
 }
-void I2C_OLED::setUncoloredPixel(uint8_t x, uint8_t y)
+void OLED::setUncoloredPixel(uint8_t x, uint8_t y)
 {
     if (x < OLED_WIDTH &&  y < OLED_HEIGHT)
         buffer.GRAM[x + (y >> 3) * OLED_WIDTH] &= ~(1 << (y & 0x07));
 }
-void I2C_OLED::setInversePixel(uint8_t x, uint8_t y)
+void OLED::setInversePixel(uint8_t x, uint8_t y)
 {
     if (x < OLED_WIDTH &&  y < OLED_HEIGHT)
         buffer.GRAM[x + (y >> 3) * OLED_WIDTH] ^= (1 << (y & 0x07));
 }
 
-void I2C_OLED::drawHorizontalLine(int16_t x, int16_t y, uint8_t length, bool update, drawMode mode)
+void OLED::drawHorizontalLine(int16_t x, int16_t y, uint8_t length, drawMode mode, bool update)
 {
     if (x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
     if (x < 0) { length += x; x = 0; }
     if ((x + length) > OLED_WIDTH) length = (OLED_WIDTH - x);
     if (length <= 0) return;
 
-    uint8_t tempy = y >> 3;
-    uint8_t tempx = x + length - 1;
     uint8_t *bufferPtr = buffer.GRAM;
-    bufferPtr += (x + tempy * OLED_WIDTH);
+    bufferPtr += (x + (y >> 3) * OLED_WIDTH);
     uint8_t drawBit = 1 << (y & 7);
    
     switch (mode) {
@@ -270,22 +163,22 @@ void I2C_OLED::drawHorizontalLine(int16_t x, int16_t y, uint8_t length, bool upd
 
     if (update)
     {
-        buffer.column_start = MIN(buffer.column_start, x);
-        buffer.column_end = MAX(buffer.column_end, tempx);
-        buffer.page_start = MIN(buffer.page_start, tempy);
-        buffer.page_end = MAX(buffer.page_end, tempy);
+        buffer.column_start = x;
+        buffer.column_end = x + length - 1;
+        buffer.row_start = y;
+        buffer.row_end = y;
         Refresh();
     }
 }
 
-void I2C_OLED::drawVerticalLine(int16_t x, int16_t y, uint8_t length, bool update, drawMode mode)
+void OLED::drawVerticalLine(int16_t x, int16_t y, uint8_t length, drawMode mode, bool update)
 {
     if (x < 0 || x >= OLED_WIDTH || y >= OLED_HEIGHT) return;
     if (y < 0) { length += y; y = 0; }
     if ((y + length) > OLED_HEIGHT) { length = (OLED_HEIGHT - y); }
     if (length <= 0) return;
 
-    uint8_t tempy = (y + length - 1) >> 3;
+    uint8_t y_end = y + length - 1;
     uint8_t yOffset = y & 7;
     uint8_t drawBit;
     uint8_t *bufferPtr = buffer.GRAM;
@@ -350,22 +243,33 @@ void I2C_OLED::drawVerticalLine(int16_t x, int16_t y, uint8_t length, bool updat
 
     if (update)
     {
-        buffer.column_start = MIN(buffer.column_start, x);
-        buffer.column_end = MAX(buffer.column_end, x);
-        buffer.page_start = MIN(buffer.page_start, y >> 3);
-        buffer.page_end = MAX(buffer.page_end, tempy);
+        buffer.column_start = x;
+        buffer.column_end = x;
+        buffer.row_start = y;
+        buffer.row_end = y_end;
         Refresh();
     }
 }
 
-void I2C_OLED::drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool update)
+void OLED::drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 {
     if((x0|x1) >= OLED_WIDTH || (y0|y1) >= OLED_HEIGHT) return;
     
-    buffer.column_start = MIN(buffer.column_start, MIN(x0, x1));
-    buffer.column_end = MAX(buffer.column_end, MAX(x0, x1));
-    buffer.page_start = MIN(buffer.page_start, (MIN(y0, y1)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MAX(y0, y1)) >> 3);
+    if(x0 < x1){
+        buffer.column_start = x0;
+        buffer.column_end = x1;
+    }else{
+        buffer.column_start = x1;
+        buffer.column_end = x0;
+    }
+
+    if(y0 < y1){
+        buffer.row_start = y0;
+        buffer.row_end = y1;
+    }else{
+        buffer.row_start = y1;
+        buffer.row_end = y0;
+    }
 
     uint8_t dx = x1 - x0 >= 0 ? x1 - x0 : x0 - x1;
     int8_t sx = x0 < x1 ? 1 : -1;
@@ -380,42 +284,42 @@ void I2C_OLED::drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool upd
         if (2 * err <= dx) { err += dx; y0 += sy; }
     }
 
-    if(update) Refresh();
+    Refresh();
 }
 
-void I2C_OLED::drawRect(int16_t x, int16_t y, uint8_t width, uint8_t height, bool update)
+void OLED::drawRect(int16_t x, int16_t y, uint8_t width, uint8_t height)
 {
     int16_t x_end = x + width - 1, y_end = y + height - 1;
     if (x_end < 0 || x > OLED_WIDTH || y_end < 0 || y > OLED_HEIGHT) return;
 
-    drawHorizontalLine(x, y, width, 0);
-    drawVerticalLine(x, y, height, 0);
-    drawVerticalLine(x_end, y, height, 0);
-    drawHorizontalLine(x, y_end, width, 0);
+    drawHorizontalLine(x, y, width, NORMAL ,0);
+    drawVerticalLine(x, y, height, NORMAL, 0);
+    drawVerticalLine(x_end, y, height, NORMAL, 0);
+    drawHorizontalLine(x, y_end, width, NORMAL, 0);
 
-    buffer.column_start = MIN(buffer.column_start, MAX(x, 0));
-    buffer.column_end = MAX(buffer.column_end, MIN(x_end, 127));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y, 0)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MIN(y_end, 63)) >> 3);
-    if(update) Refresh();
+    buffer.column_start = x > 0 ? x : 0;
+    buffer.column_end = x_end;
+    buffer.row_start = y > 0 ? y : 0;
+    buffer.row_end = y_end;
+    Refresh();
 }
 
-void I2C_OLED::drawFilledRect(int16_t x, int16_t y, uint8_t width, uint8_t height, drawMode mode, bool update)
+void OLED::drawFilledRect(int16_t x, int16_t y, uint8_t width, uint8_t height, drawMode mode)
 {
     int16_t x_end = x + width - 1, y_end = y + height - 1;
     if (x_end < 0 || x > OLED_WIDTH || y_end < 0 || y > OLED_HEIGHT) return;
     
     for (int16_t tempx = x; tempx < x + width; tempx++)
-        drawVerticalLine(tempx, y, height, 0, mode);
+        drawVerticalLine(tempx, y, height, mode, 0);
 
-    buffer.column_start = MIN(buffer.column_start, MAX(x, 0));
-    buffer.column_end = MAX(buffer.column_end, MIN(x_end, 127));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y, 0)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MIN(y_end, 63)) >> 3);
-    if(update) Refresh();
+    buffer.column_start = x > 0 ? x : 0;
+    buffer.column_end = x_end;
+    buffer.row_start = y > 0 ? y : 0;
+    buffer.row_end = y_end;
+    Refresh();
 }
 
-void I2C_OLED::drawCircle(int16_t x0, int16_t y0, uint8_t radius, bool update)
+void OLED::drawCircle(int16_t x0, int16_t y0, uint8_t radius)
 {
     int16_t x_start = x0 - radius, x_end = x0 + radius, y_start = y0 - radius, y_end = y0 + radius;
     if (x_end < 0 || x_start > OLED_WIDTH || y_end < 0 || y_start > OLED_HEIGHT) return;
@@ -440,14 +344,14 @@ void I2C_OLED::drawCircle(int16_t x0, int16_t y0, uint8_t radius, bool update)
         if (e2 > x_pos) err += ++x_pos * 2 + 1;
     } while (x_pos <= 0);
 
-    buffer.column_start = MIN(buffer.column_start, MAX(x_start, 0));
-    buffer.column_end = MAX(buffer.column_end, MIN(x_end, 127));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y_start, 0)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MIN(y_end, 63)) >> 3);
-    if(update) Refresh();
+    buffer.column_start = x_start > 0 ? x_start : 0;
+    buffer.column_end = x_end;
+    buffer.row_start = y_start > 0 ? y_start : 0;
+    buffer.row_end = y_end;
+    Refresh();
 }
 
-void I2C_OLED::drawFilledCircle(int16_t x0, int16_t y0, uint8_t radius, drawMode mode, bool update)
+void OLED::drawFilledCircle(int16_t x0, int16_t y0, uint8_t radius, drawMode mode)
 {
     int16_t x_start = x0 - radius, x_end = x0 + radius, y_start = y0 - radius, y_end = y0 + radius;
     if (x_end < 0 || x_start > OLED_WIDTH || y_end < 0 || y_start > OLED_HEIGHT) return;
@@ -458,57 +362,243 @@ void I2C_OLED::drawFilledCircle(int16_t x0, int16_t y0, uint8_t radius, drawMode
     int16_t err = 2 - 2 * radius;
     int16_t e2;
 
-    drawHorizontalLine(x0 + x_pos, y0 + y_pos, 2 * (-x_pos) + 1, 0, mode);
+    drawHorizontalLine(x0 + x_pos, y0 + y_pos, 2 * (-x_pos) + 1, mode, 0);
     do {
         e2 = err;
         if (e2 <= y_pos) {
             err += ++y_pos * 2 + 1;
             
-            drawHorizontalLine(x0 + x_pos, y0 + y_pos, 2 * (-x_pos) + 1, 0, mode);
-            drawHorizontalLine(x0 + x_pos, y0 - y_pos, 2 * (-x_pos) + 1, 0, mode);
+            drawHorizontalLine(x0 + x_pos, y0 + y_pos, 2 * (-x_pos) + 1, mode, 0);
+            drawHorizontalLine(x0 + x_pos, y0 - y_pos, 2 * (-x_pos) + 1, mode, 0);
             
             if (-x_pos == y_pos && e2 <= x_pos) e2 = 0;
         }
         if (e2 > x_pos) err += ++x_pos * 2 + 1;
     } while (x_pos <= 0);
 
-    buffer.column_start = MIN(buffer.column_start, MAX(x_start, 0));
-    buffer.column_end = MAX(buffer.column_end, MIN(x_end, 127));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y_start, 0)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MIN(y_end, 63)) >> 3);
-    if (update) Refresh();
+    buffer.column_start = x_start > 0 ? x_start : 0;
+    buffer.column_end = x_end;
+    buffer.row_start = y_start > 0 ? y_start : 0;
+    buffer.row_end = y_end;
+    Refresh();
 }
 
-void I2C_OLED::setFont(const uint8_t *fontData)
+void OLED::setFont(const uint8_t *fontData)
 {
     this -> fontData = fontData;
+    textHeight = *(fontData + 1);
+    firstChar = *(fontData + 2);
+    charNum = *(fontData + 3);
 }
 
-uint16_t I2C_OLED::getStringWidth(const char *text, uint16_t length)
+void OLED::drawChar(uint8_t &x, uint8_t &y, char charToDraw, bool printfMode)
 {
-    uint16_t firstChar = *(fontData + 2);
-    uint16_t stringWidth = 0;
+static uint16_t idx = 0;
+    if (charToDraw < firstChar || charToDraw >= firstChar + charNum) {
+        if (charToDraw == '\n' && printfMode) {
+            x = printfStruct.x_start;
+            y += textHeight;
 
-    while (length--)
-        stringWidth += *(fontData + 4 + (text[length] - firstChar) * 4 + 3);
+            // draw a FilledRect in CLEAR mode to clear the new line
+            drawFilledRect(printfStruct.x_start, y, printfStruct.x_end - printfStruct.x_start, textHeight, CLEAR);
+        }return;
+    }
 
-    return stringWidth;
+    uint16_t charFontTableBase = 4 + (charToDraw - firstChar) * 4;
+    uint8_t msbJumpToChar = *(fontData + charFontTableBase);        // MSB of JumpAddress
+    uint8_t lsbJumpToChar = *(fontData + charFontTableBase + 1);    // LSB of JumpAddress
+    uint8_t currentCharWidth = *(fontData + charFontTableBase + 3); // Width
+
+    if(msbJumpToChar == 255 && lsbJumpToChar == 255) { x += currentCharWidth; return; }
+
+    uint8_t sizeOfChar = *(fontData + charFontTableBase + 2);       // Size
+    uint16_t charDataPosition = 4 + charNum * 4 + ((msbJumpToChar << 8) + lsbJumpToChar);
+
+    uint8_t area_xend = printfStruct.x_end, area_yend = printfStruct.y_end;
+    bool lineWraped = false;
+    if (printfMode) {
+        if ((x + (currentCharWidth >> 1)) > area_xend) {
+            x = printfStruct.x_start;
+            y += textHeight;
+            lineWraped = true;
+        }
+        if ((y + (textHeight >> 1)) > area_yend) {
+            y = printfStruct.y_start;
+            lineWraped = true;
+        }
+        if(lineWraped)
+            drawFilledRect(printfStruct.x_start, y, area_xend - printfStruct.x_start, textHeight, CLEAR);
+    } else {
+        area_xend = OLED_WIDTH;
+        area_yend = OLED_HEIGHT;
+        if ((x + currentCharWidth/2) > area_xend) {
+            x += currentCharWidth;
+            return;
+        }
+        if ((y + textHeight/2) > area_yend) {
+            y += textHeight;
+            return;
+        }
+    }
+
+    uint8_t rasterHeight = 1 + ((textHeight - 1) >> 3);
+    uint8_t yOffset = y & 7;
+
+    uint8_t currentByte = 0, xPos = 0;
+    uint16_t yPos = 0, dataPos = 0;
+
+    for (uint8_t i = 0; i < sizeOfChar; i++)
+    {
+        currentByte = *(fontData + charDataPosition + i);
+        xPos = x + (i / rasterHeight);
+        yPos = ((y >> 3) + (i % rasterHeight));
+        dataPos = xPos + yPos * OLED_WIDTH;
+
+        if (dataPos < 1024 && xPos < area_xend)
+        {
+            buffer.GRAM[dataPos] |= currentByte << yOffset;
+            if ((yPos * 8 + 8) < area_yend )
+                buffer.GRAM[dataPos + OLED_WIDTH] |= currentByte >> (8 - yOffset);
+        }
+    }
+    x += currentCharWidth;
+    idx++;
 }
 
-void inline I2C_OLED::drawInternal(int16_t x, int16_t y, uint8_t width, uint8_t height, const uint8_t *data, uint16_t offset, uint16_t sizeOfChar)
+void OLED::drawString(uint8_t x, uint8_t y, const char *usrStr)
+{
+    if(x>=OLED_WIDTH || y>=OLED_HEIGHT) return;
+    uint8_t max_x = 0, initX = x;
+
+    buffer.column_start = x;
+    buffer.row_start = y;
+
+    while (*usrStr)
+    {
+        if(*usrStr == '\n') {max_x = max_x > initX ? max_x : initX; initX = x; y += textHeight;}
+        else if(initX < OLED_WIDTH && y < OLED_HEIGHT)
+            drawChar(initX, y, *usrStr, false);
+        usrStr++;
+    }
+
+    buffer.column_end = max_x > initX ? max_x : initX;
+    buffer.row_end = y+textHeight;
+
+    Refresh();
+}
+
+void OLED::printf(const char *format, ...)
+{
+    char strBuffer[17];
+    uint8_t initY = printfStruct.y_cursor;
+    va_list ap;
+    va_start(ap, format);
+    while (*format)
+    {
+        if (*format != '%'){
+            drawChar(printfStruct.x_cursor, printfStruct.y_cursor, *format, true);
+            format++;
+        }
+        else {
+            format++;
+            switch (*format)
+            {
+            case 'c': {
+                char val_ch = va_arg(ap, int);
+                drawChar(printfStruct.x_cursor, printfStruct.y_cursor, val_ch, true);
+                format++;
+            } break;
+
+            case 'd': {
+                int val_int = va_arg(ap, int);
+                //itoa(val_int, strBuffer, 10);
+                sprintf(strBuffer, "%d", val_int);
+                char *str = &strBuffer[0];
+                while (*str) {
+                    drawChar(printfStruct.x_cursor, printfStruct.y_cursor, *str, true);
+                    str++;
+                }
+                format++;
+            } break;
+
+            case 's': {
+                char *val_str = va_arg(ap, char *);
+                while (*val_str) {
+                    drawChar(printfStruct.x_cursor, printfStruct.y_cursor, *val_str, true);
+                    val_str++;
+                }
+                format++;
+            } break;
+
+            case 'f': {
+                float val_flt = va_arg(ap, double);
+                //gcvt(val_flt, 6, strBuffer);
+                sprintf(strBuffer, "%f", val_flt);
+                char *str = &strBuffer[0];
+                while (*str) {
+                    drawChar(printfStruct.x_cursor, printfStruct.y_cursor, *str, true);
+                    str++;
+                }
+                format++;
+            } break;
+
+            default: {
+                drawChar(printfStruct.x_cursor, printfStruct.y_cursor, *format, true);
+                format++;
+                } break;
+            }
+        }
+    }
+    va_end(ap);
+    buffer.column_start = printfStruct.x_start;
+    buffer.column_end = printfStruct.x_end;
+
+    if(printfStruct.y_cursor > initY){
+        buffer.row_start = initY;
+        buffer.row_end = printfStruct.y_cursor+textHeight;
+    }else{
+        buffer.row_start = printfStruct.y_start;
+        buffer.row_end = printfStruct.y_end;     
+    }
+    Refresh();
+}
+
+void OLED::printfClear()
+{
+    printfStruct.x_cursor = printfStruct.x_start;
+    printfStruct.y_cursor = printfStruct.y_start;
+    // draw a FilledRect in CLEAR mode to clear the new line
+    drawFilledRect(printfStruct.x_start, printfStruct.y_start,
+                   printfStruct.x_end - printfStruct.x_start,
+                   printfStruct.y_end - printfStruct.y_start,
+                   CLEAR);
+}
+
+void OLED::setPrintfArea(uint8_t x_start, uint8_t x_end, uint8_t y_start, uint8_t y_end)
+{
+    if(x_start>=x_end || x_end > OLED_WIDTH || y_start>=y_end || y_end >OLED_HEIGHT) return;
+    printfStruct.x_start = x_start;
+    printfStruct.x_end = x_end;
+    printfStruct.y_start = y_start;
+    printfStruct.y_end = y_end;
+    printfStruct.x_cursor = x_start;
+    printfStruct.y_cursor = y_start;
+    printfClear();
+}
+
+void OLED::drawImage(int16_t x, int16_t y, uint8_t width, uint8_t height, const uint8_t *image)
 {
     if (y + height < 0 || y > OLED_HEIGHT) return;
     if (x + width < 0 || x > OLED_WIDTH) return;
 
     uint8_t rasterHeight = 1 + ((height - 1) >> 3); // fast ceil(height / 8.0)
-    int8_t yOffset = y & 7;
-
-    sizeOfChar = sizeOfChar == 0 ? width * rasterHeight : sizeOfChar;
+    uint16_t imageSize = width * rasterHeight;
 
     int16_t initY = y;
+    int8_t yOffset = y & 7;
     int8_t initYOffset = yOffset;
 
-    for (uint16_t i = 0; i < sizeOfChar; i++)
+    for (uint16_t i = 0; i < imageSize; i++)
     {
         // Reset if next horizontal drawing phase is started.
         if (i % rasterHeight == 0)
@@ -517,12 +607,9 @@ void inline I2C_OLED::drawInternal(int16_t x, int16_t y, uint8_t width, uint8_t 
             yOffset = initYOffset;
         }
 
-        uint8_t currentByte = *(data + offset + i);
-
+        uint8_t currentByte = *(image + i);
         int16_t xPos = x + (i / rasterHeight);
         int16_t yPos = ((y >> 3) + (i % rasterHeight)) * OLED_WIDTH;
-
-        //    int16_t yScreenPos = yMove + yOffset;
         int16_t dataPos = xPos + yPos;
 
         if (dataPos >= 0 && dataPos < 1024 && xPos >= 0 && xPos < OLED_WIDTH)
@@ -530,98 +617,22 @@ void inline I2C_OLED::drawInternal(int16_t x, int16_t y, uint8_t width, uint8_t 
             if (yOffset >= 0)
             {
                 buffer.GRAM[dataPos] |= currentByte << yOffset;
-
                 if (dataPos < (1024 - OLED_WIDTH))
                     buffer.GRAM[dataPos + OLED_WIDTH] |= currentByte >> (8 - yOffset);
             }
             else
             {
-                // Make new offset position
-                yOffset = -yOffset;
+                yOffset = -yOffset; // Make new offset position
                 buffer.GRAM[dataPos] |= currentByte >> yOffset;
-                // Prepare for next iteration by moving one block up
-                y -= 8;
-                // and setting the new yOffset
-                yOffset = 8 - yOffset;
+                y -= 8; // Prepare for next iteration by moving one block up
+                yOffset = 8 - yOffset; // and setting the new yOffset
             }
         }
     }
-}
 
-void I2C_OLED::drawStringInternal(int16_t x, int16_t y, const char *text, uint8_t textLength, uint8_t textWidth)
-{
-    uint8_t textHeight = *(fontData + 1);
-    uint8_t firstChar = *(fontData + 2);
-    uint16_t sizeOfJumpTable = *(fontData + 3) * 4;
-
-    uint8_t cursorX = 0;
-    uint8_t cursorY = 0;
-
-    // Don't draw anything if it is not on the screen.
-    if (x + textWidth < 0 || x > OLED_WIDTH) return;
-    if (y + textHeight < 0 || y > OLED_HEIGHT) return;
-
-    for (uint8_t j = 0; j < textLength; j++)
-    {
-        int16_t xPos = x + cursorX;
-        int16_t yPos = y + cursorY;
-
-        uint8_t code = text[j];
-        uint8_t charCode = code - firstChar;
-
-        // 4 Bytes per char code
-        uint8_t msbJumpToChar = *(fontData + 4 + charCode * 4);                      // MSB  \ JumpAddress
-        uint8_t lsbJumpToChar = *(fontData + 4 + charCode * 4 + 1);      // LSB /
-        uint8_t charByteSize = *(fontData + 4 + charCode * 4 + 2);      // Size
-        uint8_t currentCharWidth = *(fontData + 4 + charCode * 4 + 3); // Width
-
-        // Test if the char is drawable
-        if (!(msbJumpToChar == 255 && lsbJumpToChar == 255))
-        {
-            // Get the position of the char data
-            uint16_t charDataPosition = 4 + sizeOfJumpTable + ((msbJumpToChar << 8) + lsbJumpToChar);
-            drawInternal(xPos, yPos, currentCharWidth, textHeight, fontData, charDataPosition, charByteSize);
-        }
-
-        cursorX += currentCharWidth;
-
-    }
-}
-
-void I2C_OLED::drawString(int16_t x, int16_t y, char usrStr[], bool update)
-{
-    uint8_t lineHeight = *(fontData + 1);
-    uint16_t line = 0;
-    uint16_t length = 0;
-    uint16_t width = 0;
-    uint16_t maxwidth = 0;
-
-    buffer.column_start = MIN(buffer.column_start, MAX(x, 0));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y, 0)) >> 3);
-
-    char *textPart = std::strtok(usrStr, "\n");
-    while (textPart != NULL)
-    {
-        length = std::strlen(textPart);
-        width = getStringWidth(textPart, length);
-        maxwidth = MAX(width, maxwidth);
-        
-        drawStringInternal(x, y + (line++) * lineHeight, textPart, length, width);
-        textPart = std::strtok(NULL, "\n");
-    }
-
-    buffer.column_end = MAX(buffer.column_end, MIN(x+maxwidth, 127));
-    buffer.page_end = MAX(buffer.page_end, (MIN((y + line * lineHeight), 63)) >> 3);
-    if(update)  Refresh();
-}
-
-void I2C_OLED::drawFastImage(int16_t x, int16_t y, uint8_t width, uint8_t height, const uint8_t *image, bool update)
-{
-    drawInternal(x, y, width, height, image, 0, 0);
-
-    buffer.column_start = MIN(buffer.column_start, MAX(x, 0));
-    buffer.column_end = MAX(buffer.column_end, MIN(x + width, 127));
-    buffer.page_start = MIN(buffer.page_start, (MAX(y, 0)) >> 3);
-    buffer.page_end = MAX(buffer.page_end, (MIN((y + height), 63)) >> 3);
-    if (update) Refresh();
+    buffer.column_start = x;
+    buffer.column_end = x + width;
+    buffer.row_start = y;
+    buffer.row_end = y + height;
+    Refresh();
 }

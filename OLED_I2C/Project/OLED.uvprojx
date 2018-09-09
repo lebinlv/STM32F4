@@ -311,7 +311,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>1</Optim>
+            <Optim>0</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -406,6 +406,11 @@
               <FileType>8</FileType>
               <FilePath>..\HardWare\led.cpp</FilePath>
             </File>
+            <File>
+              <FileName>I2C_OLED.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>..\HardWare\I2C_OLED.cpp</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -415,11 +420,6 @@
               <FileName>delay.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\System\delay.c</FilePath>
-            </File>
-            <File>
-              <FileName>usart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\System\usart.c</FilePath>
             </File>
           </Files>
         </Group>
